@@ -10,6 +10,8 @@ import struct
 import logging
 import json
 import uuid
+import queue
+import threading
 from elevenlabs.client import ElevenLabs
 from elevenlabs.conversational_ai.conversation import Conversation
 
@@ -29,7 +31,6 @@ TCP_PORT = 4449
 AUDIOSOCKET_UUID = 0x01
 AUDIOSOCKET_AUDIO = 0x10
 AUDIOSOCKET_HANGUP = 0x00
-
 
 
 class CustomAudioInterface:
