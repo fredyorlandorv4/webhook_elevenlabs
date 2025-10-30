@@ -96,11 +96,14 @@ class AudioSocketBridge:
         self.conversation = Conversation(
             client=self.client,
             agent_id=self.agent_id,
+            requires_auth=True,
+            audio_interface="raw",
             callback_agent_response=self.on_agent_response,
             callback_agent_response_correction=self.on_agent_response_correction,
             callback_user_transcript=self.on_user_transcript,
             callback_latency_measurement=self.on_latency_measurement,
         )
+        
         
         await self.conversation.start_session()
         logger.info("✅ Sesión iniciada con ElevenLabs")
