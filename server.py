@@ -55,9 +55,16 @@ class AudioSocketBridge:
             logger.info(f"Tipo de mensaje: {hex(msg_type)}, Longitud: {length}")
             
             if msg_type == AUDIOSOCKET_UUID:
-                # Leer el UUID
+                # Leer el UUID (viene en formato binario, 16 bytes)
                 uuid_data = await reader.read(length)
-                connection_uuid = uuid_data.decode('utf-8')
+                
+                # Convertir bytes a UUID
+                if len(uuid_data) == 16:
+                    connection_uuid = str(uuid.UUID(bytes=uuid_data))
+                else:
+                    # Si no son 16 bytes, intentar como hex string
+                    connection_uuid = uuid_data.hex()
+                
                 logger.info(f"📞 UUID de conexión: {connection_uuid}")
                 
                 # Iniciar conversación con ElevenLabs
