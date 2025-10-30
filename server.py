@@ -193,10 +193,10 @@ class AudioSocketBridge:
                     
                     if len(audio_data) > 0:
                         # Poner audio en la cola para ElevenLabs
-                        logger.info(f"📥 Recibido audio de Asterisk: {len(audio_data)} bytes")
+                        #logger.info(f"📥 Recibido audio de Asterisk: {len(audio_data)} bytes")
                         try:
                             self.audio_in_queue.put_nowait(audio_data)
-                            logger.info(f"✅ Audio puesto en cola")
+                            #logger.info(f"✅ Audio puesto en cola")
                         except queue.Full:
                             logger.warning("Cola de entrada llena, descartando audio")
                         
