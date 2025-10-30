@@ -30,6 +30,44 @@ AUDIOSOCKET_UUID = 0x01
 AUDIOSOCKET_AUDIO = 0x10
 AUDIOSOCKET_HANGUP = 0x00
 
+
+def resample_audio(audio_data, from_rate, to_rate):
+    """
+    Resamplea audio PCM 16-bit de from_rate a to_rate
+    """
+    if from_rate == to_rate:
+        return audio_data
+    
+    # Número de samples (16-bit = 2 bytes por sample)
+    num_samples = len(audio_data) // 2
+    
+    # Desempaquetar samples
+    samples = struct.unpack(f'{num_samples}h', audio_data)
+    
+    # Calcular ratio de conversión
+    ratio = from_rate / to_rate
+    
+    # Resamplear usando interpolación lineal simple
+    output_samples = []
+    output_length = int(num_samples / ratio)
+    
+    for i in range(output_length):
+        # Posición en el audio original
+        pos = i * ratio
+        index = int(pos)
+        frac = pos - index
+        
+        if index + 1 < len(samples):
+            # Interpolación lineal entre dos samples
+            sample = samples[index] * (1 - frac) + samples[index + 1] * frac
+            output_samples.append(int(sample))
+        elif index < len(samples):
+            output_samples.append(samples[index])
+    
+    # Empaquetar de vuelta a bytes
+    return struct.pack(f'{len(output_samples)}h', *output_samples)
+
+
 class AudioSocketToElevenLabs:
     def __init__(self, api_key, agent_id):
         self.api_key = api_key
@@ -145,10 +183,15 @@ class AudioSocketToElevenLabs:
                     audio_data = await reader.read(length)
                     
                     if len(audio_data) > 0:
-                        logger.debug(f"📥 Audio de Asterisk: {len(audio_data)} bytes")
+                        logger.debug(f"📥 Audio de Asterisk: {len(audio_data)} bytes (16kHz)")
                         
-                        # Convertir a base64 para enviar por WebSocket
-                        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                        # Convertir de 16kHz a 8kHz (ElevenLabs espera 8kHz)
+                        audio_8khz = resample_audio(audio_data, 16000, 8000)
+                        
+                        logger.debug(f"🔄 Convertido a 8kHz: {len(audio_8khz)} bytes")
+                        
+                        # Convertir a base64
+                        audio_base64 = base64.b64encode(audio_8khz).decode('utf-8')
                         
                         # Enviar a ElevenLabs
                         message = {
@@ -177,11 +220,16 @@ class AudioSocketToElevenLabs:
                     audio_base64 = data["audio"]
                     audio_data = base64.b64decode(audio_base64)
                     
-                    logger.debug(f"📤 Audio de ElevenLabs: {len(audio_data)} bytes")
+                    logger.debug(f"📤 Audio de ElevenLabs: {len(audio_data)} bytes (8kHz)")
+                    
+                    # Convertir de 8kHz a 16kHz (Asterisk espera 16kHz)
+                    audio_16khz = resample_audio(audio_data, 8000, 16000)
+                    
+                    logger.debug(f"🔄 Convertido a 16kHz: {len(audio_16khz)} bytes")
                     
                     # Enviar a Asterisk con protocolo AudioSocket
-                    header = struct.pack('!BH', AUDIOSOCKET_AUDIO, len(audio_data))
-                    packet = header + audio_data
+                    header = struct.pack('!BH', AUDIOSOCKET_AUDIO, len(audio_16khz))
+                    packet = header + audio_16khz
                     
                     writer.write(packet)
                     await writer.drain()
