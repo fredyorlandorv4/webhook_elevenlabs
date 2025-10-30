@@ -21,8 +21,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuración
-ELEVENLABS_API_KEY = "TU_API_KEY_AQUI"
-AGENT_ID = "TU_AGENT_ID_AQUI"
+ELEVENLABS_API_KEY = "sk_c47af6d7d7d8ffe7997c0a0e9095a502f3e58f59f2f05e5f"
+AGENT_ID = "agent_4401k5s1gcypecna6mt5p6przhqa"
 TCP_PORT = 4449
 
 # Constantes del protocolo AudioSocket
@@ -94,6 +94,7 @@ class AudioSocketBridge:
         logger.info(f"🤖 Iniciando conversación con agente {self.agent_id}")
         
         self.conversation = Conversation(
+            client=self.client,
             agent_id=self.agent_id,
             callback_agent_response=self.on_agent_response,
             callback_agent_response_correction=self.on_agent_response_correction,
