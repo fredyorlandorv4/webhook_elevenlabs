@@ -176,6 +176,7 @@ class AudioSocketBridge:
         # Tarea para enviar audio del agente a Asterisk
         agent_task = asyncio.create_task(self.send_agent_audio_to_asterisk())
         
+        
         try:
             while True:
                 # Leer header del AudioSocket (3 bytes)
@@ -192,8 +193,10 @@ class AudioSocketBridge:
                     
                     if len(audio_data) > 0:
                         # Poner audio en la cola para ElevenLabs
+                        logger.info(f"📥 Recibido audio de Asterisk: {len(audio_data)} bytes")
                         try:
                             self.audio_in_queue.put_nowait(audio_data)
+                            logger.info(f"✅ Audio puesto en cola")
                         except queue.Full:
                             logger.warning("Cola de entrada llena, descartando audio")
                         
