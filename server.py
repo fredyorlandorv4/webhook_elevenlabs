@@ -30,12 +30,64 @@ AUDIOSOCKET_UUID = 0x01
 AUDIOSOCKET_AUDIO = 0x10
 AUDIOSOCKET_HANGUP = 0x00
 
+
+
+class CustomAudioInterface:
+    """
+    Audio Interface customizado para manejar audio desde/hacia Asterisk
+    """
+    def __init__(self, input_queue, output_queue):
+        self.input_queue = input_queue  # Audio de Asterisk hacia ElevenLabs
+        self.output_queue = output_queue  # Audio de ElevenLabs hacia Asterisk
+        self.is_running = False
+    
+    def start(self, output_callback):
+        """
+        Inicia el audio interface
+        """
+        self.is_running = True
+        self.output_callback = output_callback
+        logger.info("CustomAudioInterface iniciado")
+    
+    def stop(self):
+        """
+        Detiene el audio interface
+        """
+        self.is_running = False
+        logger.info("CustomAudioInterface detenido")
+    
+    def input(self, chunk):
+        """
+        ElevenLabs llama este método cuando necesita audio del usuario
+        Retorna audio del input_queue
+        """
+        try:
+            # Intentar obtener audio de la cola (no bloqueante)
+            return self.input_queue.get(timeout=0.01)
+        except queue.Empty:
+            # Si no hay audio, retornar silencio
+            return bytes(320)  # 20ms de silencio a 16kHz mono
+    
+    def output(self, chunk):
+        """
+        ElevenLabs llama este método cuando tiene audio para reproducir
+        Lo ponemos en la cola para enviarlo a Asterisk
+        """
+        self.output_queue.put(chunk)
+        
+        # También llamar al callback si existe
+        if hasattr(self, 'output_callback') and self.output_callback:
+            self.output_callback(chunk)
+
+
 class AudioSocketBridge:
     def __init__(self, api_key, agent_id):
         self.api_key = api_key
         self.agent_id = agent_id
         self.client = ElevenLabs(api_key=api_key)
         self.conversation = None
+        self.audio_out_queue = queue.Queue()
+        self.audio_in_queue = queue.Queue()
         
     async def handle_connection(self, reader, writer):
         """
@@ -80,7 +132,7 @@ class AudioSocketBridge:
         finally:
             if self.conversation:
                 try:
-                    await self.conversation.end_session()
+                    self.conversation.end_session()
                 except:
                     pass
             writer.close()
@@ -93,19 +145,25 @@ class AudioSocketBridge:
         """
         logger.info(f"🤖 Iniciando conversación con agente {self.agent_id}")
         
+        # Crear audio interface customizado
+        audio_interface = CustomAudioInterface(self.audio_in_queue, self.audio_out_queue)
+        
         self.conversation = Conversation(
             client=self.client,
             agent_id=self.agent_id,
             requires_auth=True,
-            audio_interface="raw",
+            audio_interface=audio_interface,
             callback_agent_response=self.on_agent_response,
             callback_agent_response_correction=self.on_agent_response_correction,
             callback_user_transcript=self.on_user_transcript,
             callback_latency_measurement=self.on_latency_measurement,
         )
         
+        # start_session() NO es async, se ejecuta en otro thread
+        self.conversation.start_session()
         
-        await self.conversation.start_session()
+        # Esperar un poco a que se conecte
+        await asyncio.sleep(1)
         logger.info("✅ Sesión iniciada con ElevenLabs")
     
     async def audio_loop(self, reader, writer):
@@ -114,8 +172,8 @@ class AudioSocketBridge:
         """
         self.writer = writer
         
-        # Tarea para recibir audio del agente
-        agent_task = asyncio.create_task(self.receive_from_agent())
+        # Tarea para enviar audio del agente a Asterisk
+        agent_task = asyncio.create_task(self.send_agent_audio_to_asterisk())
         
         try:
             while True:
@@ -132,8 +190,11 @@ class AudioSocketBridge:
                     audio_data = await reader.read(length)
                     
                     if len(audio_data) > 0:
-                        # Enviar audio a ElevenLabs
-                        await self.conversation.send_audio(audio_data)
+                        # Poner audio en la cola para ElevenLabs
+                        try:
+                            self.audio_in_queue.put_nowait(audio_data)
+                        except queue.Full:
+                            logger.warning("Cola de entrada llena, descartando audio")
                         
                 elif msg_type == AUDIOSOCKET_HANGUP:
                     logger.info("📞 Hangup recibido")
@@ -148,18 +209,23 @@ class AudioSocketBridge:
         finally:
             agent_task.cancel()
     
-    async def receive_from_agent(self):
+    async def send_agent_audio_to_asterisk(self):
         """
-        Recibe audio del agente de ElevenLabs y lo envía a Asterisk
+        Tarea que lee audio del agente desde la cola y lo envía a Asterisk
         """
         try:
-            async for audio_chunk in self.conversation.receive_audio():
-                # Enviar a Asterisk usando el protocolo AudioSocket
-                await self.send_audio_to_asterisk(audio_chunk)
+            while True:
+                # Intentar obtener audio de la cola
+                try:
+                    audio_chunk = self.audio_out_queue.get(timeout=0.01)
+                    await self.send_audio_to_asterisk(audio_chunk)
+                except queue.Empty:
+                    # Si no hay audio, esperar un poco
+                    await asyncio.sleep(0.01)
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error(f"Error en receive_from_agent: {e}")
+            logger.error(f"Error en send_agent_audio_to_asterisk: {e}")
     
     async def send_audio_to_asterisk(self, audio_data):
         """
