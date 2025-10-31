@@ -42,16 +42,19 @@ class AudioSocketInterface(AudioInterface):
         self._read_task = None
         
     def start(self, input_callback):
-        """
-        ElevenLabs llama este método para iniciar el audio interface
-        input_callback: función que ElevenLabs llama cuando necesita audio del usuario
-        """
-        logger.info("🎤 AudioInterface iniciado")
-        self.input_callback = input_callback
-        self.is_running = True
-        
-        # Iniciar tarea para leer audio de Asterisk
-        self._read_task = asyncio.create_task(self._read_from_asterisk())
+            """
+            ElevenLabs llama este método para iniciar el audio interface
+            input_callback: función que ElevenLabs llama cuando necesita audio del usuario
+            """
+            logger.info("🎤 AudioInterface iniciado")
+            self.input_callback = input_callback
+            self.is_running = True
+            
+            # IMPORTANTE: Usar run_coroutine_threadsafe porque start() viene de otro thread
+            self._read_task = asyncio.run_coroutine_threadsafe(
+                self._read_from_asterisk(),
+                self.loop
+            )
     
     def stop(self):
         """
