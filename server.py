@@ -189,7 +189,7 @@ class AudioSocketToElevenLabs:
                         audio_8khz = resample_audio(audio_data, 16000, 8000)
                         
                         logger.debug(f"🔄 Convertido a 8kHz: {len(audio_8khz)} bytes")
-                        
+                        audio_base64 = base64.b64encode(audio_8khz).decode('utf-8')
                         # Enviar a ElevenLabs
                         message = {
                             "user_audio_chunk": audio_base64
