@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 Servidor TCP que conecta Asterisk AudioSocket con ElevenLabs WebSocket directo
-Ubicación: /opt/asterisk-elevenlabs-bridge/server.py
 """
 
 import asyncio
@@ -13,7 +12,6 @@ import uuid
 import base64
 import websockets
 
-# Configuración de logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -32,39 +30,27 @@ AUDIOSOCKET_HANGUP = 0x00
 
 
 def resample_audio(audio_data, from_rate, to_rate):
-    """
-    Resamplea audio PCM 16-bit de from_rate a to_rate
-    """
+    """Resamplea audio PCM 16-bit"""
     if from_rate == to_rate:
         return audio_data
     
-    # Número de samples (16-bit = 2 bytes por sample)
     num_samples = len(audio_data) // 2
-    
-    # Desempaquetar samples
     samples = struct.unpack(f'{num_samples}h', audio_data)
-    
-    # Calcular ratio de conversión
     ratio = from_rate / to_rate
-    
-    # Resamplear usando interpolación lineal simple
     output_samples = []
     output_length = int(num_samples / ratio)
     
     for i in range(output_length):
-        # Posición en el audio original
         pos = i * ratio
         index = int(pos)
         frac = pos - index
         
         if index + 1 < len(samples):
-            # Interpolación lineal entre dos samples
             sample = samples[index] * (1 - frac) + samples[index + 1] * frac
             output_samples.append(int(sample))
         elif index < len(samples):
             output_samples.append(samples[index])
     
-    # Empaquetar de vuelta a bytes
     return struct.pack(f'{len(output_samples)}h', *output_samples)
 
 
@@ -72,19 +58,14 @@ class AudioSocketToElevenLabs:
     def __init__(self, api_key, agent_id):
         self.api_key = api_key
         self.agent_id = agent_id
-        self.elevenlabs_ws = None
         self.signed_url = None
         
     async def get_signed_url(self):
-        """
-        Obtiene la URL firmada para conectarse al WebSocket de ElevenLabs
-        """
+        """Obtiene la URL firmada para conectarse al WebSocket de ElevenLabs"""
         import aiohttp
         
         url = f"https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id={self.agent_id}"
-        headers = {
-            "xi-api-key": self.api_key
-        }
+        headers = {"xi-api-key": self.api_key}
         
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as response:
@@ -98,9 +79,7 @@ class AudioSocketToElevenLabs:
                     raise Exception(f"Error obteniendo URL: {response.status} - {error}")
     
     async def handle_asterisk_connection(self, reader, writer):
-        """
-        Maneja la conexión desde Asterisk
-        """
+        """Maneja la conexión desde Asterisk"""
         addr = writer.get_extra_info('peername')
         logger.info(f"🔌 Nueva conexión desde {addr}")
         
@@ -127,7 +106,6 @@ class AudioSocketToElevenLabs:
                 
                 # Conectar al WebSocket de ElevenLabs
                 async with websockets.connect(self.signed_url) as elevenlabs_ws:
-                    self.elevenlabs_ws = elevenlabs_ws
                     logger.info("🤖 Conectado al WebSocket de ElevenLabs")
                     
                     # Procesar audio bidireccional
@@ -141,9 +119,7 @@ class AudioSocketToElevenLabs:
             logger.info("✅ Conexión cerrada")
     
     async def bidirectional_audio(self, reader, writer, elevenlabs_ws):
-        """
-        Maneja el flujo de audio bidireccional
-        """
+        """Maneja el flujo de audio bidireccional"""
         logger.info("🔄 Iniciando loop de audio bidireccional")
         
         # Tarea 1: Asterisk → ElevenLabs
@@ -175,50 +151,7 @@ class AudioSocketToElevenLabs:
         logger.info("✅ Loop de audio bidireccional finalizado")
     
     async def forward_asterisk_to_elevenlabs(self, reader, elevenlabs_ws):
-        """
-        Lee audio de Asterisk y lo envía a ElevenLabs
-        """
-        logger.info("🎤 Iniciando forward Asterisk→ElevenLabs")
-        try:
-            while True:
-                # Leer header de AudioSocket
-                header = await reader.read(3)
-                if len(header) < 3:
-                    logger.info("Conexión de Asterisk cerrada")
-                    break
-                
-                msg_type, length = struct.unpack('!BH', header)
-                
-                if msg_type == AUDIOSOCKET_AUDIO:
-                    # Leer audio
-                    audio_data = await reader.read(length)
-                    
-                    if len(audio_data) > 0:
-                        logger.debug(f"📥 Audio de Asterisk: {len(audio_data)} bytes (16kHz)")
-                        
-                        # Convertir de 16kHz a 8kHz (ElevenLabs espera 8kHz)
-                        audio_8khz = resample_audio(audio_data, 16000, 8000)
-                        
-                        logger.debug(f"🔄 Convertido a 8kHz: {len(audio_8khz)} bytes")
-                        
-                        # Enviar a ElevenLabs
-                        message = {
-                            "user_audio_chunk": audio_base64
-                        }
-                        await elevenlabs_ws.send(json.dumps(message))
-                        logger.debug("✅ Audio enviado a ElevenLabs")
-                
-                elif msg_type == AUDIOSOCKET_HANGUP:
-                    logger.info("📞 Hangup de Asterisk")
-                    break
-                    
-        except Exception as e:
-            logger.error(f"Error en forward_asterisk_to_elevenlabs: {e}")
-    
-    async def forward_asterisk_to_elevenlabs(self, reader, elevenlabs_ws):
-        """
-        Lee audio de Asterisk y lo envía a ElevenLabs
-        """
+        """Lee audio de Asterisk y lo envía a ElevenLabs"""
         logger.info("🎤 Iniciando forward Asterisk→ElevenLabs")
         try:
             while True:
@@ -241,7 +174,7 @@ class AudioSocketToElevenLabs:
                         audio_8khz = resample_audio(audio_data, 16000, 8000)
                         logger.debug(f"🔄 Convertido a 8kHz: {len(audio_8khz)} bytes")
                         
-                        # ESTA ES LA LÍNEA CRÍTICA - CONVERTIR A BASE64
+                        # Convertir a base64
                         audio_base64 = base64.b64encode(audio_8khz).decode('utf-8')
                         
                         # Enviar a ElevenLabs
@@ -257,11 +190,49 @@ class AudioSocketToElevenLabs:
                     
         except Exception as e:
             logger.error(f"Error en forward_asterisk_to_elevenlabs: {e}")
+    
+    async def forward_elevenlabs_to_asterisk(self, elevenlabs_ws, writer):
+        """Lee audio de ElevenLabs y lo envía a Asterisk"""
+        logger.info("🔊 Iniciando forward ElevenLabs→Asterisk")
+        try:
+            logger.info("👂 Esperando mensajes de ElevenLabs...")
+            async for message in elevenlabs_ws:
+                logger.debug(f"📨 Mensaje recibido de ElevenLabs: {len(message)} bytes")
+                data = json.loads(message)
+                
+                # Audio del agente
+                if "audio" in data:
+                    audio_base64 = data["audio"]
+                    audio_data = base64.b64decode(audio_base64)
+                    
+                    logger.info(f"📤 Audio de ElevenLabs: {len(audio_data)} bytes")
+                    
+                    # Convertir de 8kHz a 16kHz
+                    audio_16khz = resample_audio(audio_data, 8000, 16000)
+                    logger.debug(f"🔄 Convertido a 16kHz: {len(audio_16khz)} bytes")
+                    
+                    # Enviar a Asterisk con protocolo AudioSocket
+                    header = struct.pack('!BH', AUDIOSOCKET_AUDIO, len(audio_16khz))
+                    packet = header + audio_16khz
+                    
+                    writer.write(packet)
+                    await writer.drain()
+                    logger.debug("✅ Audio enviado a Asterisk")
+                
+                # Transcripción del usuario
+                if "user_transcription" in data:
+                    logger.info(f"👤 Usuario: {data['user_transcription']}")
+                
+                # Respuesta del agente
+                if "agent_response" in data:
+                    logger.info(f"🤖 Agente: {data['agent_response']}")
+                
+        except Exception as e:
+            logger.error(f"Error en forward_elevenlabs_to_asterisk: {e}")
+
 
 async def main():
-    """
-    Inicia el servidor TCP
-    """
+    """Inicia el servidor TCP"""
     bridge = AudioSocketToElevenLabs(ELEVENLABS_API_KEY, AGENT_ID)
     
     server = await asyncio.start_server(
