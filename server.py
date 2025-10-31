@@ -144,15 +144,21 @@ class AudioSocketToElevenLabs:
         """
         Maneja el flujo de audio bidireccional
         """
+        logger.info("🔄 Iniciando loop de audio bidireccional")
+        
         # Tarea 1: Asterisk → ElevenLabs
         asterisk_to_eleven = asyncio.create_task(
             self.forward_asterisk_to_elevenlabs(reader, elevenlabs_ws)
         )
+        logger.info("✅ Tarea Asterisk→ElevenLabs iniciada")
         
         # Tarea 2: ElevenLabs → Asterisk
         eleven_to_asterisk = asyncio.create_task(
             self.forward_elevenlabs_to_asterisk(elevenlabs_ws, writer)
         )
+        logger.info("✅ Tarea ElevenLabs→Asterisk iniciada")
+        
+        logger.info("⏳ Esperando tareas de audio...")
         
         # Esperar a que cualquiera termine
         done, pending = await asyncio.wait(
@@ -160,14 +166,19 @@ class AudioSocketToElevenLabs:
             return_when=asyncio.FIRST_COMPLETED
         )
         
+        logger.info(f"⚠️  Una tarea terminó. Cancelando pendientes...")
+        
         # Cancelar tareas pendientes
         for task in pending:
             task.cancel()
+            
+        logger.info("✅ Loop de audio bidireccional finalizado")
     
     async def forward_asterisk_to_elevenlabs(self, reader, elevenlabs_ws):
         """
         Lee audio de Asterisk y lo envía a ElevenLabs
         """
+        logger.info("🎤 Iniciando forward Asterisk→ElevenLabs")
         try:
             while True:
                 # Leer header de AudioSocket
@@ -189,7 +200,7 @@ class AudioSocketToElevenLabs:
                         audio_8khz = resample_audio(audio_data, 16000, 8000)
                         
                         logger.debug(f"🔄 Convertido a 8kHz: {len(audio_8khz)} bytes")
-                        audio_base64 = base64.b64encode(audio_8khz).decode('utf-8')
+                        
                         # Enviar a ElevenLabs
                         message = {
                             "user_audio_chunk": audio_base64
@@ -208,8 +219,11 @@ class AudioSocketToElevenLabs:
         """
         Lee audio de ElevenLabs y lo envía a Asterisk
         """
+        logger.info("🔊 Iniciando forward ElevenLabs→Asterisk")
         try:
+            logger.info("👂 Esperando mensajes de ElevenLabs...")
             async for message in elevenlabs_ws:
+                logger.debug(f"📨 Mensaje recibido de ElevenLabs: {len(message)} bytes")
                 data = json.loads(message)
                 
                 # Audio del agente
