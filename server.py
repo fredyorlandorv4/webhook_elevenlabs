@@ -33,28 +33,29 @@ class AudioSocketInterface(AudioInterface):
     """
     AudioInterface customizado para AudioSocket (similar a TwilioAudioInterface)
     """
-    def __init__(self, reader, writer):
+    def __init__(self, reader, writer, loop):
         self.reader = reader
         self.writer = writer
         self.input_callback = None
-        self.loop = asyncio.get_event_loop()
+        self.loop = loop  # Guardar referencia al event loop
         self.is_running = False
         self._read_task = None
         
     def start(self, input_callback):
-            """
-            ElevenLabs llama este método para iniciar el audio interface
-            input_callback: función que ElevenLabs llama cuando necesita audio del usuario
-            """
-            logger.info("🎤 AudioInterface iniciado")
-            self.input_callback = input_callback
-            self.is_running = True
-            
-            # IMPORTANTE: Usar run_coroutine_threadsafe porque start() viene de otro thread
-            self._read_task = asyncio.run_coroutine_threadsafe(
-                self._read_from_asterisk(),
-                self.loop
-            )
+        """
+        ElevenLabs llama este método para iniciar el audio interface
+        input_callback: función que ElevenLabs llama cuando necesita audio del usuario
+        """
+        logger.info("🎤 AudioInterface iniciado")
+        self.input_callback = input_callback
+        self.is_running = True
+        
+        # Iniciar tarea para leer audio de Asterisk usando run_coroutine_threadsafe
+        # porque start() se llama desde otro thread
+        self._read_task = asyncio.run_coroutine_threadsafe(
+            self._read_from_asterisk(),
+            self.loop
+        )
     
     def stop(self):
         """
@@ -63,7 +64,7 @@ class AudioSocketInterface(AudioInterface):
         logger.info("🛑 AudioInterface detenido")
         self.is_running = False
         self.input_callback = None
-        if self._read_task:
+        if self._read_task and not self._read_task.done():
             self._read_task.cancel()
     
     def output(self, audio: bytes):
@@ -176,8 +177,11 @@ class AudioSocketServer:
                 
                 logger.info(f"📞 UUID de conexión: {connection_uuid}")
                 
-                # Crear el AudioInterface
-                audio_interface = AudioSocketInterface(reader, writer)
+                # Obtener el event loop actual
+                loop = asyncio.get_running_loop()
+                
+                # Crear el AudioInterface pasándole el loop
+                audio_interface = AudioSocketInterface(reader, writer, loop)
                 
                 # Crear la conversación con ElevenLabs
                 logger.info(f"🤖 Iniciando conversación con agente {self.agent_id}")
@@ -196,6 +200,17 @@ class AudioSocketServer:
                 # Iniciar la sesión (esto es síncrono, corre en otro thread)
                 conversation.start_session()
                 logger.info("✅ Conversación iniciada")
+                
+                # Esperar a que el AudioInterface se inicie (start() se llama desde otro thread)
+                timeout = 5  # 5 segundos de timeout
+                for _ in range(timeout * 10):
+                    if audio_interface.is_running:
+                        logger.info("🎧 AudioInterface activo y escuchando")
+                        break
+                    await asyncio.sleep(0.1)
+                else:
+                    logger.error("⚠️  Timeout esperando que AudioInterface se inicie")
+                    return
                 
                 # Mantener la conexión mientras el audio_interface está activo
                 while audio_interface.is_running:
